@@ -174,7 +174,7 @@ const DEF = [
     ["longueurBranches", "Longueur", 0.1, 0.8, 0.05, 0.3, "Longueur d'une branche par rapport à la ligne qui la porte."],
   ]],
   ["3 · FORME", [
-    ["epaisseur", "Épaisseur", 50, 170, 1, 90],
+    ["epaisseur", "Épaisseur", 40, 150, 1, 90, "Épaisseur des traits. Le dessin reste le même, seuls les traits gonflent ou s'affinent."],
     ["sigil", "Finesse", 80, 1200, 10, 200, "Plus haut : plus fin, plus pointu."],
   ]],
   ["4 · RENDU", []],
@@ -183,6 +183,7 @@ const DEF = [
 const FIXE = { longueurTrait: 760, courbureTrait: 1.4, effilement: 0.96, resolution: 230, relief: 22 };
 const EPAISSEUR_NIVEAU = [1, 0.88, 0.76, 0.66, 0.75]; // le dernier : les épines
 const EXPO_ECHELLE = 0.88; // une grande composition affine ses traits (sans aller jusqu'au fil)
+const E_GEO = 90; // épaisseur de référence pour construire le dessin : le curseur Épaisseur ne change que le rendu
 const LONGUEUR_MAX = 6;
 const DENSITE_EPINES = 3.5; // une épine tous les ~3,5 épaisseurs de trait
 const P = { graine: 2026, source: "libres", mode: "chrome", voirTraits: false, traitsMain: [] };
@@ -257,7 +258,7 @@ function unTrait(R, U) {
 function faisceau(R, U, x0, y0, th0, bend, L, n, E, pinceDebut, ondule = 1, queues = false) {
   // un axe doux, puis n brins qui le suivent en ondulant, serrés aux bouts
   const enS = !pinceDebut && R() < 0.5;
-  const s2 = enS ? U(0.55, 0.95) * (R() < 0.5 ? -1 : 1) : U(-0.3, 0.3), NA = 200, axe = [];
+  const s2 = enS ? U(0.5, 0.75) * (R() < 0.5 ? -1 : 1) : U(-0.3, 0.3), NA = 200, axe = [];
   if (enS) bend *= 0.3; // en S, la courbure d'ensemble s'efface
   let x = x0, y = y0;
   for (let k = 0; k <= NA; k++) {
@@ -381,7 +382,7 @@ function lameLentille(R, U, x0, y0, th0, bend, L, E) {
 // 2 brins), sur laquelle des lames (petits faisceaux) partent en alternance, couchées dans le flux,
 // comme la vrille des références.
 function traitsFaisceau(R, U) {
-  const E = P.epaisseur, L = P.longueurTrait * 1.2;
+  const E = E_GEO, L = P.longueurTrait * 1.2;
   const th0 = U(0, Math.PI * 2), sens = R() < 0.5 ? -1 : 1;
   // un seul faisceau, de plus en plus de brins avec la taille (version A, préférée par Louise)
   // plus la taille monte, plus la forme s'allonge (les grandes pièces sont longues, pas carrées)
@@ -393,7 +394,7 @@ function traitsLibres(R, U) {
   // Croissance en chaîne : chaque nouvelle ligne croise une ligne déjà posée en un point pris
   // sur sa longueur, et part vers l'extérieur. Les lignes ne s'empilent plus toutes au centre,
   // et une ligne qui en longerait une autre (ou passerait trop près d'une troisième) est refusée.
-  const out = [], E = P.epaisseur;
+  const out = [], E = E_GEO;
   const premier = unTrait(R, U);
   out.push(premier);
   const proches = (c, exclu) => {
@@ -451,13 +452,13 @@ function longueurDe(t) { let L = 0; for (let i = 1; i < t.length; i++) L += Math
 function colle(pts, parent, tous) {
   // Refuse une branche qui longe une autre ligne, ou dont la moitié finale passe près d'une autre :
   // une pointe qui touche sa voisine ferme une boucle, et la contraction en fait un trou rond.
-  const ecart = P.epaisseur * 0.55, ecartPointe = P.epaisseur * 0.95;
+  const ecart = E_GEO * 0.55, ecartPointe = E_GEO * 0.95;
   const a0 = pts[0];
   const pres = (x, y, r) => {
     for (const t of tous) {
       for (let j = 0; j < t.length; j += 2) {
         const q = t[j];
-        if (t === parent && Math.hypot(q[0] - a0[0], q[1] - a0[1]) < P.epaisseur * 1.6) continue; // l'attache elle-même
+        if (t === parent && Math.hypot(q[0] - a0[0], q[1] - a0[1]) < E_GEO * 1.6) continue; // l'attache elle-même
         if (Math.abs(q[0] - x) < r && Math.abs(q[1] - y) < r && Math.hypot(q[0] - x, q[1] - y) < r) return true;
       }
     }
@@ -474,8 +475,9 @@ function colle(pts, parent, tous) {
 }
 function croissance(base) {
   const R = mulberry32(P.graine * 104729 + 11), U = (a, b) => a + (b - a) * R();
-  const tous = base.map((t) => { const c = t.slice(); c.niv = 0; c.effil = t.effil; c.effDeb = t.effDeb; c.ep = t.ep; c.bord = t.bord; return c; });
+  const tous = base.map((t) => { const c = t.slice(); c.niv = 0; c.effil = t.effil; c.effDeb = t.effDeb; c.ep = t.ep; c.bord = t.bord; c.pointe = t.pointe; return c; });
   const pousser = (parent, n, niv) => {
+    if (parent.bord === false) return []; // grand faisceau : un brin intérieur ne porte pas de branche (elle traverserait les jours)
     const m = parent.length - 1, pris = [], enfants = [];
     // une ligne avec des angles (un logo, un tracé importé) compte comme plusieurs morceaux :
     // la longueur d'une branche se règle sur le morceau qui la porte, pas sur toute la ligne
@@ -490,7 +492,7 @@ function croissance(base) {
     const cumul = [0];
     for (let i = 1; i <= m; i++) cumul.push(cumul[i - 1] + Math.hypot(parent[i][0] - parent[i - 1][0], parent[i][1] - parent[i - 1][1]));
     const nb = Math.round(n * Math.sqrt(coins.length - 1));
-    const eb = P.epaisseur * EPAISSEUR_NIVEAU[Math.min(niv, 3)];
+    const eb = E_GEO * EPAISSEUR_NIVEAU[Math.min(niv, 3)];
     for (let k = 0; k < nb * 8 && enfants.length < nb; k++) {
       const s = U(0.06, 0.94);
       const i = Math.round(s * m);
@@ -503,8 +505,13 @@ function croissance(base) {
       if (sm < 0.1 || sm > 0.9) continue;
       const a = parent[Math.max(0, i - 1)], b = parent[Math.min(m, i + 1)];
       const tan = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      if (parent.bord) {
+        // sur le contour d'un faisceau, une branche part vers le dehors, jamais à travers le faisceau
+        const px = parent[i][0] - Math.sin(tan) * cote * eb * 2.2, py = parent[i][1] + Math.cos(tan) * cote * eb * 2.2;
+        if (tous.some((u) => u !== parent && !(u.niv) && u.some(([x, y]) => Math.hypot(x - px, y - py) < eb * 2))) continue;
+      }
       const cap = tan + cote * U(0.3, 0.75); // couchées dans le sens du flux, comme sur les références
-      const Lb = Math.min(Lm * P.longueurBranches * U(0.8, 1.15) * (1 - 0.25 * sm), LONGUEUR_MAX * P.epaisseur * EPAISSEUR_NIVEAU[Math.min(niv, 3)] * U(0.8, 1.1));
+      const Lb = Math.min(Lm * P.longueurBranches * U(0.8, 1.15) * (1 - 0.25 * sm), LONGUEUR_MAX * E_GEO * EPAISSEUR_NIVEAU[Math.min(niv, 3)] * U(0.8, 1.1) * (parent.bord ? 0.7 : 1)); // sur un grand faisceau : des lames, pas des bras
       if (Lb < 2.6 * eb) continue; // trop courte, elle ne ferait qu'une bosse
       const sg = R() < 0.75 ? -cote : cote; // la plupart se recourbent dans le sens de la ligne mère
       const pts = courbe(parent[i][0], parent[i][1], cap, Lb, U(0.05, 0.45), U(0, 0.45), sg); // peu enroulées : elles restent couchées dans le flux
@@ -525,14 +532,18 @@ function croissance(base) {
   }
   // Épines : de petites pointes couchées tout le long des brins, vers l'extérieur comme dans les jours
   // (la signature des références). Elles n'ont qu'à ne pas toucher un autre trait.
-  const E = P.epaisseur, grand = tous.some((t) => t.bord), porteurs = tous.filter((t) => (t.niv || 0) <= 1 && (!grand || t.bord || t.niv)); // grand faisceau : les épines sortent du contour
+  const E = E_GEO, grand = tous.some((t) => t.bord), porteurs = tous.filter((t) => (t.niv || 0) <= 1 && (!grand || t.bord || t.niv)); // grand faisceau : les épines sortent du contour
   for (const t of porteurs) {
     const m = t.length - 1, L = longueurDe(t), k = Math.round(L / (E * DENSITE_EPINES * (grand ? 1.3 : 1)));
     for (let j = 0; j < k; j++) {
       const sj = U(0.15, 0.85), i = Math.round(sj * m), a = t[Math.max(0, i - 1)], b = t[Math.min(m, i + 1)];
       const tan = Math.atan2(b[1] - a[1], b[0] - a[0]), cote = R() < 0.5 ? 1 : -1;
-      const Lp = E * U(3, 5) * (t.niv ? 0.75 : 1) * (P.taille >= 4 && !t.niv ? U(1.2, 1.8) : 1);
-      const pts = courbe(t[i][0], t[i][1], tan + cote * U(0.45, 0.9), Lp, U(0.15, 0.4), U(0.2, 0.7), -cote); // une faucille : part de biais puis se couche dans le flux
+      // sur le contour d'une grande pièce, une épine sur trois devient une lame : longue, épaisse, couchée dans le flux
+      const lame = grand && t.bord && R() < 0.4;
+      const Lp = E * U(3, 5) * (t.niv ? 0.75 : 1) * (P.taille >= 4 && !t.niv ? U(1.2, 1.8) : 1) * (lame ? U(1.5, 2) : 1);
+      const pts = lame ? courbe(t[i][0], t[i][1], tan + cote * U(0.35, 0.6), Lp, U(0.1, 0.3), U(0.4, 0.9), -cote)
+                       : courbe(t[i][0], t[i][1], tan + cote * U(0.45, 0.9), Lp, U(0.15, 0.4), U(0.2, 0.7), -cote); // une faucille : part de biais puis se couche dans le flux
+      if (lame) { pts.ep = 1.4; pts.pointe = 2; } // corps plein, pointe franche
       // la pointe ne doit frôler aucun autre trait
       let ok = true;
       for (let q = Math.floor(pts.length * 0.4); q < pts.length && ok; q++) {
@@ -556,7 +567,7 @@ function cadrer(traits) {
   const k = dispo / Math.max(x1 - x0, y1 - y0, 1);
   ECHELLE = k; // l'épaisseur suit l'échelle : une grande composition garde des traits fins
   const ox = (MONDE - (x1 - x0) * k) / 2, oy = (MONDE - (y1 - y0) * k) / 2;
-  return traits.map((t) => { const c = t.map(([x, y]) => [ox + (x - x0) * k, oy + (y - y0) * k]); c.niv = t.niv || 0; c.effil = t.effil; c.effDeb = t.effDeb; c.ep = t.ep; c.bord = t.bord; return c; });
+  return traits.map((t) => { const c = t.map(([x, y]) => [ox + (x - x0) * k, oy + (y - y0) * k]); c.niv = t.niv || 0; c.effil = t.effil; c.effDeb = t.effDeb; c.ep = t.ep; c.bord = t.bord; c.pointe = t.pointe; return c; });
 }
 // Le logo JAB (tracé du portfolio) comme lignes de base
 const LOGO_JAB = [
@@ -577,7 +588,7 @@ function traits() {
     // l'épaisseur suit le recadrage, donc les contre-formes du logo restent ouvertes
     const k0 = 2.25, base = LOGO_JAB.map((p) => { const t = echantillonner(p.map(([x, y]) => [60 + x * k0, 300 + y * k0]), 5); t.effil = 0.3; return t; }); // le logo garde des bouts pleins
     const T = cadrer(croissance(base));
-    ECHELLE = Math.pow(ECHELLE, 1 / EXPO_ECHELLE); // compense l'exposant appliqué plus loin : ici l'épaisseur suit l'échelle en entier
+    ECHELLE = Math.pow(ECHELLE * 0.72, 1 / EXPO_ECHELLE); // traits du logo un peu plus fins : ses contre-formes restent ouvertes ; compense l'exposant appliqué plus loin : ici l'épaisseur suit l'échelle en entier
     return T;
   }
   if (P.source === "main") {
@@ -633,19 +644,19 @@ const CASES_EPAISSEUR = 15; // la grille compte toujours ~15 cases dans l'épais
 function construireMaillage(T, rapide) {
   const E = P.epaisseur * Math.pow(ECHELLE, EXPO_ECHELLE);
   const N = Math.round(clamp(MONDE * CASES_EPAISSEUR / E, 120, 600) * (rapide ? 0.55 : 1)), h = MONDE / N, n1 = N + 1;
-  const dedans = new Uint8Array(n1 * n1), rloc = new Float32Array(n1 * n1);
+  const dedans = new Uint8Array(n1 * n1), rloc = new Float32Array(n1 * n1), corps = new Uint8Array(n1 * n1); // corps : couvert par autre chose qu'une épine
   for (const t of T) {
     const m = t.length - 1, niv = t.niv || 0, R0 = (E / 2) * EPAISSEUR_NIVEAU[niv] * (t.ep ?? 1);
     // ligne de base : amincie aux deux bouts ; branche : pleine à l'attache, fine à la pointe
     const ef = t.effil ?? P.effilement, efd = t.effDeb ?? ef;
-    const rayon = niv === 0 ? (i) => R0 * (1 - (i < m / 2 ? efd : ef) * Math.pow(Math.abs(2 * i / m - 1), 3)) : niv === 4 ? (i) => R0 * (1 - 0.95 * Math.pow(i / m, 1.1)) : (i) => R0 * (1 - 0.3 * Math.pow(i / m, 1.6)); // épines : effilées jusqu'à la pointe
+    const rayon = niv === 0 ? (i) => R0 * (1 - (i < m / 2 ? efd : ef) * Math.pow(Math.abs(2 * i / m - 1), 3)) : niv === 4 ? (i) => R0 * (1 - 0.95 * Math.pow(i / m, t.pointe ?? 1.1)) : (i) => R0 * (1 - 0.3 * Math.pow(i / m, 1.6)); // épines : effilées jusqu'à la pointe
     for (let i = 0; i < m; i++) {
       const [ax, ay] = t[i], [bx, by] = t[i + 1], ra = rayon(i), rb = rayon(i + 1), r = Math.max(ra, rb);
       const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - r) / h)), i1 = Math.min(N, Math.ceil((Math.max(ax, bx) + r) / h));
       const j0 = Math.max(0, Math.floor((Math.min(ay, by) - r) / h)), j1 = Math.min(N, Math.ceil((Math.max(ay, by) + r) / h));
       for (let j = j0; j <= j1; j++) for (let q = i0; q <= i1; q++) {
         const g = j * n1 + q;
-        if (r > rloc[g] && dCapsule(q * h, j * h, ax, ay, bx, by, ra, rb) < 0) { dedans[g] = 1; rloc[g] = r; }
+        if ((r > rloc[g] || (niv < 4 && !corps[g])) && dCapsule(q * h, j * h, ax, ay, bx, by, ra, rb) < 0) { dedans[g] = 1; rloc[g] = Math.max(rloc[g], r); if (niv < 4) corps[g] = 1; }
       }
     }
   }
@@ -714,7 +725,7 @@ function construireMaillage(T, rapide) {
   // un point pris seulement dans une partie fine (pointe d'épine, queue) bouge moins : la contraction
   // ne mange plus les épines et les queues, elle les affûte
   const mob = new Float32Array(nv);
-  for (let g = 0; g < n1 * n1; g++) if (idx[g] >= 0) mob[idx[g]] = clamp(Math.pow(rloc[g] / (E * 0.4), 2), MOBILITE_FINE, 1);
+  for (let g = 0; g < n1 * n1; g++) if (idx[g] >= 0) mob[idx[g]] = corps[g] ? clamp(Math.pow(rloc[g] / (E * 0.4), 2), MOBILITE_FINE, 1) : MOBILITE_EPINE; // une épine se lisse sans fondre
   const X = new Float64Array(nv), Y = new Float64Array(nv);
   for (let g = 0; g < n1 * n1; g++) if (idx[g] >= 0) { X[idx[g]] = (g % n1) * h; Y[idx[g]] = Math.floor(g / n1) * h; }
   // voisins : arêtes de la grille entre deux points gardés et portées par une face
@@ -822,7 +833,8 @@ function masque(S) {
   return A;
 }
 const TROU_GRILLE = 0.35; // trous de départ plus petits que 1,6 × épaisseur² : bouchés
-const MOBILITE_FINE = 0.3; // mobilité minimale d'un point dans une partie fine
+const MOBILITE_FINE = 0.3;
+const MOBILITE_EPINE = 0.4; // mobilité des épines et des lames pendant la contraction // mobilité minimale d'un point dans une partie fine
 const TROU_FINAL = 3600; // trous finaux de moins de ~60 × 60 unités : bouchés
 const MOBILITE_JOUR = 0.05;
 const LISSAGE_JOUR = 1e9; // (essai de limiter le lissage aux premières passes : bords crénelés, abandonné)
