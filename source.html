@@ -170,8 +170,8 @@ const DEF = [
 ];
 // réglages fixés : les valeurs qui donnent de beaux résultats
 const FIXE = { longueurTrait: 760, courbureTrait: 1.4, effilement: 0.96, resolution: 230, relief: 22 };
-const EPAISSEUR_NIVEAU = [1, 0.8, 0.68, 0.6, 0.7]; // le dernier : les épines
-const EXPO_ECHELLE = 0.93; // une grande composition affine ses traits (sans aller jusqu'au fil)
+const EPAISSEUR_NIVEAU = [1, 0.88, 0.76, 0.66, 0.75]; // le dernier : les épines
+const EXPO_ECHELLE = 0.88; // une grande composition affine ses traits (sans aller jusqu'au fil)
 const LONGUEUR_MAX = 6;
 const DENSITE_EPINES = 3.5; // une épine tous les ~3,5 épaisseurs de trait
 const P = { graine: 2026, source: "libres", mode: "chrome", voirTraits: false, traitsMain: [] };
@@ -311,7 +311,7 @@ function faisceau(R, U, x0, y0, th0, bend, L, n, E, pinceDebut, ondule = 1, queu
         const off = (d - tot / 2) * ouvre * queue + ampL * Math.sin(ondeLente * s + phL) * ouvre;
         pts.push(sur(s, off));
       }
-      const b = i === 0 || i === n - 1; pts.bord = b; pts.ep = b ? 1.2 : 0.7; // contour fort, toile intérieure plus fine
+      const b = i === 0 || i === n - 1; pts.bord = b; pts.ep = b ? 1.25 : 0.88; pts.effil = 0.8; // contour fort, toile intérieure plus fine
       out.push(pts);
     }
     return out;
@@ -627,7 +627,7 @@ function construireMaillage(T, rapide) {
     const m = t.length - 1, niv = t.niv || 0, R0 = (E / 2) * EPAISSEUR_NIVEAU[niv] * (t.ep ?? 1);
     // ligne de base : amincie aux deux bouts ; branche : pleine à l'attache, fine à la pointe
     const ef = t.effil ?? P.effilement, efd = t.effDeb ?? ef;
-    const rayon = niv === 0 ? (i) => R0 * (1 - (i < m / 2 ? efd : ef) * Math.pow(Math.abs(2 * i / m - 1), 3)) : niv === 4 ? (i) => R0 * (1 - 0.95 * Math.pow(i / m, 1.1)) : (i) => R0 * (1 - 0.4 * Math.pow(i / m, 1.6)); // épines : effilées jusqu'à la pointe
+    const rayon = niv === 0 ? (i) => R0 * (1 - (i < m / 2 ? efd : ef) * Math.pow(Math.abs(2 * i / m - 1), 3)) : niv === 4 ? (i) => R0 * (1 - 0.95 * Math.pow(i / m, 1.1)) : (i) => R0 * (1 - 0.3 * Math.pow(i / m, 1.6)); // épines : effilées jusqu'à la pointe
     for (let i = 0; i < m; i++) {
       const [ax, ay] = t[i], [bx, by] = t[i + 1], ra = rayon(i), rb = rayon(i + 1), r = Math.max(ra, rb);
       const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - r) / h)), i1 = Math.min(N, Math.ceil((Math.max(ax, bx) + r) / h));
