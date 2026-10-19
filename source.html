@@ -523,14 +523,14 @@ function croissance(base) {
   // (la signature des références). Elles n'ont qu'à ne pas toucher un autre trait.
   const E = E_GEO, grand = tous.some((t) => t.bord), porteurs = tous.filter((t) => (t.niv || 0) <= 1 && (!grand || t.bord || t.niv)); // grand faisceau : les épines sortent du contour
   for (const t of porteurs) {
-    const m = t.length - 1, L = longueurDe(t), k = Math.round(L / (E * DENSITE_EPINES * (grand ? 1.3 : 1)));
+    const m = t.length - 1, L = longueurDe(t), k = Math.round(L / (E * DENSITE_EPINES * (grand ? 0.95 : 1)));
     for (let j = 0; j < k; j++) {
       const sj = U(0.15, 0.85), i = Math.round(sj * m), a = t[Math.max(0, i - 1)], b = t[Math.min(m, i + 1)];
       const tan = Math.atan2(b[1] - a[1], b[0] - a[0]), cote = R() < 0.5 ? 1 : -1;
       // sur le contour d'une grande pièce, une épine sur trois devient une lame : longue, épaisse, couchée dans le flux
       const lame = grand && t.bord && R() < 0.4;
-      const Lp = E * U(3, 5) * (t.niv ? 0.75 : 1) * (P.taille >= 4 && !t.niv ? U(1.2, 1.8) : 1) * (lame ? U(1.5, 2) : 1);
-      const pts = lame ? courbe(t[i][0], t[i][1], tan + cote * U(0.35, 0.6), Lp, U(0.1, 0.3), U(0.4, 0.9), -cote)
+      const Lp = lame ? E * U(5, 7.5) : E * U(3, 5) * (t.niv ? 0.75 : 1) * (P.taille >= 4 && !t.niv ? U(1.1, 1.5) : 1);
+      const pts = lame ? courbe(t[i][0], t[i][1], tan + cote * U(0.35, 0.6), Lp, U(0.1, 0.3), U(0.2, 0.5), -cote)
                        : courbe(t[i][0], t[i][1], tan + cote * U(0.45, 0.9), Lp, U(0.15, 0.4), U(0.2, 0.7), -cote); // une faucille : part de biais puis se couche dans le flux
       if (lame) { pts.ep = 1.4; pts.pointe = 2; } // corps plein, pointe franche
       // la pointe ne doit frôler aucun autre trait
