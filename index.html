@@ -170,7 +170,7 @@ const SOURCE = {
 const DEF = [
   ["2 · BRANCHES", [
     ["profondeur", "Profondeur", 0, 3, 1, 1, "0 : lignes seules. 1 : des branches. 2 et 3 : des branches sur les branches."],
-    ["nombre", "Nombre", 1, 24, 1, 10, "Branches sur chaque ligne (un peu moins à chaque niveau)."],
+    ["nombre", "Nombre", 1, 24, 1, 5, "Branches sur chaque ligne (un peu moins à chaque niveau)."],
     ["longueurBranches", "Longueur", 0.1, 0.8, 0.05, 0.3, "Longueur d'une branche par rapport à la ligne qui la porte."],
   ]],
   ["3 · FORME", [
@@ -182,12 +182,12 @@ const DEF = [
 // réglages fixés : les valeurs qui donnent de beaux résultats
 const FIXE = { longueurTrait: 760, courbureTrait: 1.4, effilement: 0.75, resolution: 230, relief: 22 };
 const EPAISSEUR_NIVEAU = [1, 0.8, 0.68, 0.6];
-const EXPO_ECHELLE = 1; // une grande composition affine ses traits (sans aller jusqu'au fil)
-const LONGUEUR_MAX = 4.5; // une branche ne dépasse pas ~3,5 fois son épaisseur
+const EXPO_ECHELLE = 0.65; // une grande composition affine ses traits (sans aller jusqu'au fil)
+const LONGUEUR_MAX = 6; // une branche ne dépasse pas ~3,5 fois son épaisseur
 const P = { graine: 2026, source: "libres", mode: "chrome", voirTraits: false, traitsMain: [] };
 for (const k in SOURCE) SOURCE[k].items.forEach(([c, , , , , v]) => (P[c] = v));
 DEF.forEach(([, items]) => items.forEach(([c, , , , , v]) => (P[c] = v)));
-try { const s = JSON.parse(localStorage.getItem("forge-sigils-13") || "null"); if (s) Object.assign(P, s); } catch (e) {}
+try { const s = JSON.parse(localStorage.getItem("forge-sigils-14") || "null"); if (s) Object.assign(P, s); } catch (e) {}
 if (!SOURCE[P.source]) P.source = "libres";
 Object.assign(P, FIXE);
 
@@ -218,7 +218,7 @@ function afficherSource() {
   document.getElementById("consigne").hidden = !main;
   document.getElementById("scene").classList.toggle("trace", main);
 }
-function sauver() { try { localStorage.setItem("forge-sigils-13", JSON.stringify(P)); } catch (e) {} }
+function sauver() { try { localStorage.setItem("forge-sigils-14", JSON.stringify(P)); } catch (e) {} }
 function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lisse = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -253,7 +253,7 @@ function unTrait(R, U) {
 // Faisceau : des brins presque parallèles qui suivent un même axe courbe, ondulent un peu,
 // se croisent et se resserrent vers les deux bouts. Les croisements donnent des jours allongés
 // et pointus, orientés dans le sens du flux (comme sur les références).
-function faisceau(R, U, x0, y0, th0, bend, L, n, E, pinceDebut, ondule = 1) {
+function faisceau(R, U, x0, y0, th0, bend, L, n, E, pinceDebut, ondule = 1, queues = false) {
   // un axe doux, puis n brins qui le suivent en ondulant, serrés aux bouts
   const s2 = U(-0.3, 0.3), NA = 200, axe = [];
   let x = x0, y = y0;
@@ -263,22 +263,49 @@ function faisceau(R, U, x0, y0, th0, bend, L, n, E, pinceDebut, ondule = 1) {
     x += Math.cos(th) * L / NA; y += Math.sin(th) * L / NA;
   }
   const sur = (s, d) => {
-    const k = clamp(Math.round(s * NA), 0, NA), a = axe[k];
-    return [a.x - Math.sin(a.th) * d, a.y + Math.cos(a.th) * d];
+    // au-delà des bouts de l'axe (queues), on prolonge en ligne droite dans sa direction
+    const k = clamp(Math.round(s * NA), 0, NA), a = axe[k], hors = s < 0 ? s : s > 1 ? s - 1 : 0;
+    const x = a.x + Math.cos(a.th) * hors * L, y = a.y + Math.sin(a.th) * hors * L;
+    return [x - Math.sin(a.th) * d, y + Math.cos(a.th) * d];
   };
-  const ecartBrins = E * U(0.95, 1.3), out = [];
-  for (let i = 0; i < n; i++) {
-    const c = (i - (n - 1) / 2) * ecartBrins * U(0.85, 1.15);
-    const amp = E * U(0.35, 0.9) * ondule, om = U(1.2, 3.2) * Math.PI * (ondule < 1 ? 0.6 : 1), ph = U(0, Math.PI * 2);
-    const t0 = pinceDebut ? 0 : U(0, 0.28), t1 = U(0.72, 1), pince = U(0.25, 0.5);
-    const pts = [];
-    for (let k = 0; k <= 120; k++) {
-      const s = t0 + (t1 - t0) * k / 120;
-      // depuis une racine : les brins partent serrés et s'ouvrent ; sinon serrés aux deux bouts
-      const ouvre = pinceDebut ? pince * 0.4 + (1 - pince * 0.4) * Math.sin(Math.PI * Math.min(1, 0.5 + s * 0.5)) * Math.min(1, s * 2.2)
-                               : pince + (1 - pince) * Math.sin(Math.PI * s);
-      pts.push(sur(s, c * ouvre + amp * Math.sin(om * s + ph) * ouvre));
+  const ecartBrins = E * U(0.95, 1.3) * (1 + 0.12 * Math.max(0, n - 3)), out = []; // grand faisceau : plus d'air, jours plus grands
+  // distance minimale (approchée) entre un brin et les autres
+  const dmin = (p, autres) => {
+    // seulement la partie épaisse des brins (hors bouts effilés)
+    let m = Infinity;
+    const a0 = Math.floor(p.length * 0.2), a1 = Math.ceil(p.length * 0.8);
+    for (const t of autres) for (let a = a0; a < a1; a += 2) for (let b = Math.floor(t.length * 0.2); b < t.length * 0.8; b += 2) {
+      const d = Math.hypot(p[a][0] - t[b][0], p[a][1] - t[b][1]); if (d < m) m = d;
     }
+    return m;
+  };
+  // tous les brins ondulent presque au même rythme, deux voisins en opposition de phase :
+  // ils se croisent régulièrement (tout tient ensemble) et s'écartent entre deux croisements (jours en lentille)
+  const omBase = U(1.4, 2.4) * Math.PI * (ondule < 1 ? 0.6 : 1), phBase = U(0, Math.PI * 2);
+  for (let i = 0; i < n; i++) {
+    let c = (i - (n - 1) / 2) * ecartBrins * U(0.9, 1.1);
+    const amp = E * U(0.45, 0.8) * ondule * (1 + 0.1 * Math.max(0, n - 3)), om = omBase * U(0.88, 1.12), ph = phBase + (i % 2) * Math.PI + U(-0.4, 0.4);
+    // bouts décalés par crans nets : soit ensemble, soit franchement en retrait (pas de moignons)
+    let t0 = pinceDebut ? 0 : [0, 0, 0.15, 0.28][Math.floor(R() * 4)], t1 = [1, 1, 0.85, 0.72][Math.floor(R() * 4)];
+    const pince = U(0.25, 0.5);
+    // les brins du bord prolongent la forme en longues queues fines (comme sur les références)
+    if (queues && i === 0 && R() < 0.85) t0 = -U(0.15, 0.35);
+    if (queues && i === n - 1 && R() < 0.85) t1 = 1 + U(0.15, 0.35);
+    const tracer = () => {
+      const pts = [];
+      for (let k = 0; k <= 120; k++) {
+        const s = t0 + (t1 - t0) * k / 120;
+        // depuis une racine : les brins partent serrés et s'ouvrent ; sinon serrés aux deux bouts
+        const sc = clamp(s, 0, 1);
+        const ouvre = pinceDebut ? pince * 0.4 + (1 - pince * 0.4) * Math.sin(Math.PI * Math.min(1, 0.5 + sc * 0.5)) * Math.min(1, sc * 2.2)
+                                 : pince + (1 - pince) * Math.sin(Math.PI * sc);
+        pts.push(sur(s, c * ouvre + amp * Math.sin(om * s + ph) * ouvre));
+      }
+      return pts;
+    };
+    let pts = tracer();
+    // un brin qui ne touche aucun autre se rapproche du centre jusqu'à toucher (pas de morceau isolé)
+    for (let essai = 0; essai < 4 && out.length && dmin(pts, out) > E * 0.55; essai++) { c *= 0.85; pts = tracer(); }
     out.push(pts);
   }
   return out;
@@ -308,41 +335,11 @@ function lameLentille(R, U, x0, y0, th0, bend, L, E) {
 function traitsFaisceau(R, U) {
   const E = P.epaisseur, L = P.longueurTrait * 1.2;
   const th0 = U(0, Math.PI * 2), sens = R() < 0.5 ? -1 : 1;
-  if (P.taille <= 2) return faisceau(R, U, 0, 0, th0 - sens * 0.6, P.courbureTrait * U(0.5, 1.0) * sens, L, P.taille + 1, E, false);
-  const Ls = L * (1 + 0.35 * (P.taille - 2));
-  // colonne : un S doux
-  const NA = 240, axe = [];
-  let x = 0, y = 0;
-  const ampS = U(0.5, 0.9), ph = U(0, Math.PI);
-  for (let k = 0; k <= NA; k++) {
-    const t = k / NA, th = th0 + ampS * Math.sin(Math.PI * 2 * t * 0.8 + ph) * sens;
-    axe.push([x, y, th]);
-    x += Math.cos(th) * Ls / NA; y += Math.sin(th) * Ls / NA;
-  }
-  const out = [];
-  // la colonne elle-même : 2 brins serrés
-  for (let i = 0; i < 2; i++) {
-    const c = (i - 0.5) * E * U(0.9, 1.2), amp = E * U(0.15, 0.35), om = U(1, 2) * Math.PI, phi = U(0, 6.3);
-    const t0 = U(0, 0.06), t1 = U(0.94, 1), pts = [];
-    for (let k = 0; k <= 200; k++) {
-      const t = t0 + (t1 - t0) * k / 200, a = axe[Math.round(t * NA)], ouvre = 0.3 + 0.7 * Math.sin(Math.PI * t);
-      const d = (c + amp * Math.sin(om * t + phi)) * ouvre;
-      pts.push([a[0] - Math.sin(a[2]) * d, a[1] + Math.cos(a[2]) * d]);
-    }
-    out.push(pts);
-  }
-  // les lames, en alternance de part et d'autre
-  const nl = P.taille;
-  let cote = R() < 0.5 ? 1 : -1;
-  for (let j = 0; j < nl; j++) {
-    const t = 0.1 + 0.8 * (j + U(0.2, 0.8)) / nl, a = axe[Math.round(t * NA)];
-    const th = a[2] + cote * U(0.35, 0.7);
-    const lame = lameLentille(R, U, a[0], a[1], th, -cote * U(0.3, 0.8), L * U(0.6, 0.95) * (1.1 - 0.4 * Math.abs(t - 0.5)), E * 0.75);
-    for (const b of lame) b.effDeb = 0.1; // pleine à l'attache, effilée à la pointe
-    out.push(...lame);
-    cote = -cote;
-  }
-  return out;
+  // un seul faisceau, de plus en plus de brins avec la taille (version A, préférée par Louise)
+  // plus la taille monte, plus la forme s'allonge (les grandes pièces sont longues, pas carrées)
+  const n = P.taille <= 2 ? P.taille + 1 : 2 + Math.round(P.taille * 0.75);
+  const Lt = L * (P.taille <= 2 ? 1 : 0.85 + 0.14 * P.taille);
+  return faisceau(R, U, 0, 0, th0 - sens * 0.6, P.courbureTrait * U(0.5, 1.0) * sens, Lt, n, E, false, 1, P.taille >= 2);
 }
 function traitsLibres(R, U) {
   // Croissance en chaîne : chaque nouvelle ligne croise une ligne déjà posée en un point pris
@@ -471,7 +468,9 @@ function croissance(base) {
   // niveau par niveau, un peu moins de branches à chaque fois
   let generation = tous.slice();
   for (let niv = 1; niv <= P.profondeur; niv++) {
-    const n = Math.max(1, Math.round(P.nombre * Math.pow(0.65, niv - 1)));
+    // au premier niveau, le nombre est réparti entre les lignes de base (sinon un faisceau de 6 brins ferait un peigne)
+    const parLigne = niv === 1 && base.length > 2 ? P.nombre * 2.2 / base.length : P.nombre;
+    const n = Math.max(1, Math.round(parLigne * Math.pow(0.65, niv - 1)));
     const suivante = [];
     for (const b of generation) suivante.push(...pousser(b, n, niv));
     generation = suivante;
@@ -588,6 +587,33 @@ function construireMaillage(T, rapide) {
     const a = j * n1 + i, b = a + 1, c = a + n1 + 1, d = a + n1;
     if (dedans[a] && dedans[b] && dedans[c] && dedans[d]) { faces.push(a, b, c, d); utile[a] = utile[b] = utile[c] = utile[d] = 1; }
   }
+  // filet de sécurité : on ne garde que les morceaux qui pèsent (un fragment isolé ne fait pas partie du sigil)
+  {
+    const comp = new Int32Array(n1 * n1).fill(-1), tailles = [];
+    for (let g0 = 0; g0 < n1 * n1; g0++) {
+      if (!utile[g0] || comp[g0] >= 0) continue;
+      const id = tailles.length, pile = [g0]; comp[g0] = id; let nbc = 0;
+      while (pile.length) {
+        const g = pile.pop(); nbc++;
+        const x = g % n1, y = (g / n1) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= n1 || yy >= n1) continue;
+          const q = yy * n1 + xx;
+          if (utile[q] && comp[q] < 0) { comp[q] = id; pile.push(q); }
+        }
+      }
+      tailles.push(nbc);
+    }
+    const plus = Math.max(...tailles, 0);
+    if (tailles.length > 1 && P.source !== "main") {
+      const garde = tailles.map((t) => t >= plus * 0.25);
+      for (let g = 0; g < n1 * n1; g++) if (utile[g] && !garde[comp[g]]) utile[g] = 0;
+      const F2 = [];
+      for (let f = 0; f < faces.length; f += 4) if (utile[faces[f]]) F2.push(faces[f], faces[f + 1], faces[f + 2], faces[f + 3]);
+      faces.length = 0; faces.push(...F2);
+    }
+  }
   const idx = new Int32Array(n1 * n1).fill(-1);
   let nv = 0;
   for (let g = 0; g < n1 * n1; g++) if (utile[g]) idx[g] = nv++;
@@ -644,12 +670,13 @@ function passes(M, n) {
       const a = debut[v], b = debut[v + 1];
       for (let k = a; k < b; k++) { const w = vois[k]; sx += X[w]; sy += Y[w]; }
       const d = 1 + b - a;
-      if (bordJour[v]) {
+      if (bordJour[v] && M.passes + it >= LISSAGE_JOUR) { X2[v] = X[v] + (sx / d - X[v]) * MOBILITE_JOUR; Y2[v] = Y[v] + (sy / d - Y[v]) * MOBILITE_JOUR; }
+      else if (bordJour[v]) {
         // le long du bord du jour seulement : on lisse les marches de la grille sans gonfler le jour
         let bx = X[v], by = Y[v], nb = 1;
         for (let k = a; k < b; k++) { const w = vois[k]; if (bordJour[w]) { bx += X[w]; by += Y[w]; nb++; } }
-        X2[v] = X[v] + (bx / nb - X[v]) * 0.5 + (sx / d - X[v]) * MOBILITE_JOUR;
-        Y2[v] = Y[v] + (by / nb - Y[v]) * 0.5 + (sy / d - Y[v]) * MOBILITE_JOUR;
+        X2[v] = X[v] + (bx / nb - X[v]) * 0.25 + (sx / d - X[v]) * MOBILITE_JOUR;
+        Y2[v] = Y[v] + (by / nb - Y[v]) * 0.25 + (sy / d - Y[v]) * MOBILITE_JOUR;
       }
       else { X2[v] = sx / d; Y2[v] = sy / d; }
     }
@@ -721,7 +748,8 @@ function masque(S) {
 }
 const TROU_GRILLE = 0.35; // trous de départ plus petits que 1,6 × épaisseur² : bouchés
 const TROU_FINAL = 3600; // trous finaux de moins de ~60 × 60 unités : bouchés
-const MOBILITE_JOUR = 0.08; // les bords des jours bougent 8 fois moins que le reste
+const MOBILITE_JOUR = 0.05;
+const LISSAGE_JOUR = 1e9; // (essai de limiter le lissage aux premières passes : bords crénelés, abandonné)
 const PENTE = 0.75; // pente des biseaux (0.75 ≈ 37°)
 // Distance euclidienne exacte au bord (Felzenszwalb & Huttenlocher), en pixels, à l'intérieur de la forme.
 function edt(A0, S) {
