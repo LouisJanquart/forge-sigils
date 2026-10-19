@@ -255,7 +255,7 @@ function unTrait(R, U) {
 // Faisceau : des brins presque parallèles qui suivent un même axe courbe, ondulent un peu,
 // se croisent et se resserrent vers les deux bouts. Les croisements donnent des jours allongés
 // et pointus, orientés dans le sens du flux (comme sur les références).
-function faisceau(R, U, x0, y0, th0, bend, L, n, E, pinceDebut, ondule = 1, queues = false) {
+function faisceau(R, U, x0, y0, th0, bend, L, n, E, pinceDebut, ondule = 1, queues = false, grosJour = false) {
   // un axe doux, puis n brins qui le suivent en ondulant, serrés aux bouts
   const enS = !pinceDebut && R() < 0.75; // plutôt en S (une courbe et sa contre-courbe) qu'en croissant
   const s2 = enS ? U(0.3, 0.5) * (R() < 0.5 ? -1 : 1) : U(-0.3, 0.3), NA = 200, axe = [];
@@ -295,6 +295,11 @@ function faisceau(R, U, x0, y0, th0, bend, L, n, E, pinceDebut, ondule = 1, queu
     // toutes dans le même sens (comme des écailles), décalées d'une rangée à l'autre.
     const sensLarme = R() < 0.5, lam = ecartBrins * U(7, 9.5) / L, gaps = [], ph0 = U(0, 1);
     for (let g = 0; g < n - 1; g++) gaps.push({ G: ecartBrins * U(1.35, 1.8), lam: lam * U(0.9, 1.1), ph: ph0 + g / (n - 1) + U(-0.08, 0.08), D: U(0.5, 0.66) });
+    if (grosJour) {
+      // une lame d'assemblage : un seul long jour au milieu (comme la taille 3 préférée), parfois doublé d'un second plus court
+      gaps[0] = { G: ecartBrins * U(1.9, 2.5), lam: 1, ph: -0.12, D: 0.82 };
+      if (n > 2) gaps[1] = R() < 0.5 ? { G: ecartBrins * U(1.2, 1.6), lam: 1, ph: -U(0.3, 0.45), D: 0.45 } : { G: 0, lam: 1, ph: 0, D: 0.5 };
+    }
     const prof = (v) => Math.sqrt(v) * Math.pow(1 - v, 1.15) / 0.36; // monte vite (bout rond), redescend lentement (pointe)
     const ecart = (gp, s) => {
       let u = (s / gp.lam + gp.ph) % 1; if (u < 0) u += 1;
@@ -395,9 +400,46 @@ function traitsFaisceau(R, U) {
   const th0 = U(0, Math.PI * 2), sens = R() < 0.5 ? -1 : 1;
   // un seul faisceau, de plus en plus de brins avec la taille (version A, préférée par Louise)
   // plus la taille monte, plus la forme s'allonge (les grandes pièces sont longues, pas carrées)
+  if (P.taille >= 4) return assemblage(R, U, E, L, th0, sens);
   const n = P.taille <= 2 ? P.taille + 1 : Math.min(4, 2 + Math.ceil(P.taille / 3)); // une bande étroite : 2 à 3 jours de large au plus
   const Lt = L * (P.taille <= 2 ? 1 : 0.7 + 0.28 * P.taille); // les grandes pièces sont nettement plus longues que larges
   return faisceau(R, U, 0, 0, th0 - sens * 0.6, P.courbureTrait * U(0.2, 0.45) * sens, Lt, n, E, false, 1, P.taille >= 2); // peu cintré : pas de banane
+}
+// Grande taille : on assemble des lames du même genre que la taille 3 (3 brins, un long jour, deux pointes).
+// La première est la plus grande ; chaque suivante pousse depuis le flanc d'une lame déjà posée,
+// en éventail dans le sens du flux, sans venir se coucher sur les autres.
+function assemblage(R, U, E, L, th0, sens) {
+  const nb = P.taille - 2, unites = [], tous = [];
+  const L3 = L * 1.54;
+  const premiere = faisceau(R, U, 0, 0, th0 - sens * 0.6, P.courbureTrait * U(0.2, 0.45) * sens, L3 * U(1.0, 1.15), 3, E, false, 1, true, true);
+  unites.push(premiere); tous.push(...premiere);
+  for (let u = 1; u < nb; u++) {
+    let pose = null;
+    for (let essai = 0; essai < 60 && !pose; essai++) {
+      const mere = unites[Math.floor(R() * unites.length)], axe = mere[1], m = axe.length - 1;
+      const i = Math.round(U(0.15, 0.55) * m), a = axe[Math.max(0, i - 2)], b = axe[Math.min(m, i + 2)];
+      const tan = Math.atan2(b[1] - a[1], b[0] - a[0]), cote = R() < 0.5 ? 1 : -1;
+      const cap = tan + cote * U(0.4, 0.7), Lu = L3 * U(0.55, 0.9) * Math.pow(0.92, u);
+      // la racine part un peu en arrière, dans la mère : la nouvelle lame en sort au lieu d'y être collée
+      const x0 = axe[i][0] - Math.cos(cap) * E * 1.5, y0 = axe[i][1] - Math.sin(cap) * E * 1.5;
+      const lame = faisceau(R, U, x0, y0, cap, P.courbureTrait * U(0.1, 0.35) * -cote, Lu, 3, E, false, 1, false, true);
+      // test : à partir du tiers, la lame reste à distance de tout ce qui est déjà posé
+      let ok = true;
+      for (const t of lame) {
+        for (let q = Math.floor(t.length * 0.5); q < t.length && ok; q += 3) {
+          for (const v of tous) {
+            for (let w = 0; w < v.length; w += 3) if (Math.hypot(v[w][0] - t[q][0], v[w][1] - t[q][1]) < E * 1.8) { ok = false; break; }
+            if (!ok) break;
+          }
+        }
+        if (!ok) break;
+      }
+      if (ok) pose = lame;
+    }
+    if (!pose) break;
+    unites.push(pose); tous.push(...pose);
+  }
+  return tous;
 }
 function traitsLibres(R, U) {
   // Croissance en chaîne : chaque nouvelle ligne croise une ligne déjà posée en un point pris
@@ -543,7 +585,7 @@ function croissance(base) {
   // (la signature des références). Elles n'ont qu'à ne pas toucher un autre trait.
   const E = E_GEO, grand = tous.some((t) => t.bord), porteurs = tous.filter((t) => (t.niv || 0) <= 1 && (!grand || t.bord || t.niv)); // grand faisceau : les épines sortent du contour
   for (const t of porteurs) {
-    const m = t.length - 1, L = longueurDe(t), k = Math.round(L / (E * DENSITE_EPINES * (grand ? 0.95 : P.source === "logo" ? 0.6 : 1)));
+    const m = t.length - 1, L = longueurDe(t), k = Math.round(L / (E * DENSITE_EPINES * (grand ? (P.taille >= 4 ? 1.5 : 0.95) : P.source === "logo" ? 0.6 : 1)));
     for (let j = 0; j < k; j++) {
       const sj = U(0.15, 0.85), i = Math.round(sj * m), a = t[Math.max(0, i - 1)], b = t[Math.min(m, i + 1)];
       const tan = Math.atan2(b[1] - a[1], b[0] - a[0]), cote = R() < 0.5 ? 1 : -1;
