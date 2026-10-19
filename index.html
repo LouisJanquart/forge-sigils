@@ -170,8 +170,8 @@ const SOURCE = {
 const DEF = [
   ["2 · BRANCHES", [
     ["profondeur", "Profondeur", 0, 3, 1, 1, "0 : lignes seules. 1 : des branches. 2 et 3 : des branches sur les branches."],
-    ["nombre", "Nombre", 1, 6, 1, 3, "Branches sur chaque ligne (un peu moins à chaque niveau)."],
-    ["longueurBranches", "Longueur", 0.2, 1, 0.05, 0.55, "Longueur d'une branche par rapport à la ligne qui la porte."],
+    ["nombre", "Nombre", 1, 24, 1, 10, "Branches sur chaque ligne (un peu moins à chaque niveau)."],
+    ["longueurBranches", "Longueur", 0.1, 0.8, 0.05, 0.3, "Longueur d'une branche par rapport à la ligne qui la porte."],
   ]],
   ["3 · FORME", [
     ["epaisseur", "Épaisseur", 40, 130, 1, 68],
@@ -181,12 +181,12 @@ const DEF = [
 ];
 // réglages fixés : les valeurs qui donnent de beaux résultats
 const FIXE = { longueurTrait: 760, courbureTrait: 1.4, effilement: 0.35, resolution: 230, relief: 22 };
-const EPAISSEUR_NIVEAU = [1, 0.92, 0.85, 0.8];
-const LONGUEUR_MAX = 6; // une branche ne dépasse pas ~6 fois son épaisseur
+const EPAISSEUR_NIVEAU = [1, 0.62, 0.5, 0.42];
+const LONGUEUR_MAX = 3.5; // une branche ne dépasse pas ~3,5 fois son épaisseur
 const P = { graine: 2026, source: "libres", mode: "chrome", voirTraits: false, traitsMain: [] };
 for (const k in SOURCE) SOURCE[k].items.forEach(([c, , , , , v]) => (P[c] = v));
 DEF.forEach(([, items]) => items.forEach(([c, , , , , v]) => (P[c] = v)));
-try { const s = JSON.parse(localStorage.getItem("forge-sigils-10") || "null"); if (s) Object.assign(P, s); } catch (e) {}
+try { const s = JSON.parse(localStorage.getItem("forge-sigils-11") || "null"); if (s) Object.assign(P, s); } catch (e) {}
 if (!SOURCE[P.source]) P.source = "libres";
 Object.assign(P, FIXE);
 
@@ -217,7 +217,7 @@ function afficherSource() {
   document.getElementById("consigne").hidden = !main;
   document.getElementById("scene").classList.toggle("trace", main);
 }
-function sauver() { try { localStorage.setItem("forge-sigils-10", JSON.stringify(P)); } catch (e) {} }
+function sauver() { try { localStorage.setItem("forge-sigils-11", JSON.stringify(P)); } catch (e) {} }
 function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lisse = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -293,7 +293,7 @@ function traitsArbre(R, U) {
 // Croissance en arbre : sur chaque ligne de base poussent des branches, sur chaque branche des sous-branches.
 function longueurDe(t) { let L = 0; for (let i = 1; i < t.length; i++) L += Math.hypot(t[i][0] - t[i - 1][0], t[i][1] - t[i - 1][1]); return L; }
 function colle(pts, parent, tous) {
-  const ecart = P.epaisseur * 1.25; // garde de l'air entre les branches
+  const ecart = P.epaisseur * 0.55; // garde un peu d'air entre les branches
   let n = 0, total = 0;
   for (let i = Math.floor(pts.length * 0.3); i < pts.length; i++) {
     total++;
@@ -329,23 +329,26 @@ function croissance(base) {
     const cumul = [0];
     for (let i = 1; i <= m; i++) cumul.push(cumul[i - 1] + Math.hypot(parent[i][0] - parent[i - 1][0], parent[i][1] - parent[i - 1][1]));
     const nb = Math.round(n * Math.sqrt(coins.length - 1));
-    for (let k = 0; k < nb * 3 && enfants.length < nb; k++) {
+    const eb = P.epaisseur * EPAISSEUR_NIVEAU[Math.min(niv, 3)];
+    for (let k = 0; k < nb * 8 && enfants.length < nb; k++) {
       const s = U(0.06, 0.94);
-      if (pris.some((t) => Math.abs(t - s) < 0.5 / (nb + 1))) continue;
       const i = Math.round(s * m);
+      // écart le long de la mère, en vraie distance : serré côte à côte, plus d'air du même côté
+      const cote = R() < 0.5 ? 1 : -1;
+      if (pris.some((p) => Math.abs(cumul[p.i] - cumul[i]) < (p.cote === cote ? 1.7 : 0.4) * eb)) continue;
       if (coins.some((c) => c > 0 && c < m && Math.abs(c - i) < 4)) continue; // pas de départ sur un angle
       let ci = 0; while (coins[ci + 1] < i) ci++;
       const Lm = cumul[coins[ci + 1]] - cumul[coins[ci]], sm = (cumul[i] - cumul[coins[ci]]) / (Lm || 1);
       if (sm < 0.1 || sm > 0.9) continue;
       const a = parent[Math.max(0, i - 1)], b = parent[Math.min(m, i + 1)];
-      const tan = Math.atan2(b[1] - a[1], b[0] - a[0]), cote = R() < 0.5 ? 1 : -1;
+      const tan = Math.atan2(b[1] - a[1], b[0] - a[0]);
       const cap = tan + cote * U(0.7, 1.25);
       const Lb = Math.min(Lm * P.longueurBranches * U(0.8, 1.15) * (1 - 0.25 * sm), LONGUEUR_MAX * P.epaisseur * EPAISSEUR_NIVEAU[Math.min(niv, 3)] * U(0.8, 1.1));
-      if (Lb < 40) continue;
+      if (Lb < 1.6 * eb) continue;
       const sg = R() < 0.75 ? -cote : cote; // la plupart se recourbent dans le sens de la ligne mère
       const pts = courbe(parent[i][0], parent[i][1], cap, Lb, U(0.3, 1.0), U(0.3, 1.3), sg);
       if (colle(pts, parent, tous)) continue; // une branche qui longe ou recouvre une autre ferait un pâté
-      pts.niv = niv; pris.push(s); enfants.push(pts); tous.push(pts);
+      pts.niv = niv; pris.push({ i, cote }); enfants.push(pts); tous.push(pts);
     }
     return enfants;
   };
@@ -568,7 +571,7 @@ function masque(S) {
   for (let i = 0; i < S * S; i++) if (plein[i] && !avant[i]) A[i] = 1;
   return A;
 }
-const TROU_GRILLE = 1.0; // trous de départ plus petits que 1,6 × épaisseur² : bouchés
+const TROU_GRILLE = 0.35; // trous de départ plus petits que 1,6 × épaisseur² : bouchés
 const TROU_FINAL = 3600; // trous finaux de moins de ~60 × 60 unités : bouchés
 const PENTE = 0.75; // pente des biseaux (0.75 ≈ 37°)
 // Distance euclidienne exacte au bord (Felzenszwalb & Huttenlocher), en pixels, à l'intérieur de la forme.
