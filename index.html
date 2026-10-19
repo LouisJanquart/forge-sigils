@@ -175,19 +175,19 @@ const DEF = [
   ]],
   ["3 · FORME", [
     ["epaisseur", "Épaisseur", 50, 170, 1, 90],
-    ["sigil", "Finesse", 100, 1200, 10, 380, "Plus haut : plus fin, plus pointu."],
+    ["sigil", "Finesse", 100, 1200, 10, 270, "Plus haut : plus fin, plus pointu."],
   ]],
   ["4 · RENDU", []],
 ];
 // réglages fixés : les valeurs qui donnent de beaux résultats
-const FIXE = { longueurTrait: 760, courbureTrait: 1.4, effilement: 0.35, resolution: 230, relief: 22 };
+const FIXE = { longueurTrait: 760, courbureTrait: 1.4, effilement: 0.75, resolution: 230, relief: 22 };
 const EPAISSEUR_NIVEAU = [1, 0.8, 0.68, 0.6];
 const EXPO_ECHELLE = 1; // une grande composition affine ses traits (sans aller jusqu'au fil)
 const LONGUEUR_MAX = 4.5; // une branche ne dépasse pas ~3,5 fois son épaisseur
 const P = { graine: 2026, source: "libres", mode: "chrome", voirTraits: false, traitsMain: [] };
 for (const k in SOURCE) SOURCE[k].items.forEach(([c, , , , , v]) => (P[c] = v));
 DEF.forEach(([, items]) => items.forEach(([c, , , , , v]) => (P[c] = v)));
-try { const s = JSON.parse(localStorage.getItem("forge-sigils-12") || "null"); if (s) Object.assign(P, s); } catch (e) {}
+try { const s = JSON.parse(localStorage.getItem("forge-sigils-13") || "null"); if (s) Object.assign(P, s); } catch (e) {}
 if (!SOURCE[P.source]) P.source = "libres";
 Object.assign(P, FIXE);
 
@@ -218,7 +218,7 @@ function afficherSource() {
   document.getElementById("consigne").hidden = !main;
   document.getElementById("scene").classList.toggle("trace", main);
 }
-function sauver() { try { localStorage.setItem("forge-sigils-12", JSON.stringify(P)); } catch (e) {} }
+function sauver() { try { localStorage.setItem("forge-sigils-13", JSON.stringify(P)); } catch (e) {} }
 function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lisse = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -249,6 +249,40 @@ function unTrait(R, U) {
   const capm = Math.atan2(my - a[a.length - 2][1], mx - a[a.length - 2][0]);
   const b = courbe(mx, my, capm, L * 0.5, tour * 0.5 * (R() < 0.5 ? -1 : 1), crochet, R() < 0.5 ? -1 : 1);
   return a.concat(b.slice(1));
+}
+// Faisceau : des brins presque parallèles qui suivent un même axe courbe, ondulent un peu,
+// se croisent et se resserrent vers les deux bouts. Les croisements donnent des jours allongés
+// et pointus, orientés dans le sens du flux (comme sur les références).
+function traitsFaisceau(R, U) {
+  const n = P.taille + 1, E = P.epaisseur, L = P.longueurTrait * 1.2;
+  const th0 = U(0, Math.PI * 2), bend = P.courbureTrait * U(0.5, 1.0) * (R() < 0.5 ? -1 : 1), s2 = U(-0.3, 0.3); // un croissant
+  // axe : une courbe douce
+  const NA = 200, axe = [];
+  let x = 0, y = 0;
+  for (let k = 0; k <= NA; k++) {
+    const s = k / NA, th = th0 + bend * (s - 0.5) + s2 * Math.sin(Math.PI * 2 * s);
+    axe.push({ x, y, th });
+    x += Math.cos(th) * L / NA; y += Math.sin(th) * L / NA;
+  }
+  const sur = (s, d) => {
+    const k = clamp(Math.round(s * NA), 0, NA), a = axe[k];
+    return [a.x - Math.sin(a.th) * d, a.y + Math.cos(a.th) * d];
+  };
+  const ecartBrins = E * U(0.95, 1.3), out = [];
+  for (let i = 0; i < n; i++) {
+    const c = (i - (n - 1) / 2) * ecartBrins * U(0.85, 1.15);
+    const amp = E * U(0.35, 0.9), om = U(1.2, 3.2) * Math.PI, ph = U(0, Math.PI * 2);
+    const t0 = U(0, 0.28), t1 = U(0.72, 1), pince = U(0.25, 0.5);
+    const pts = [];
+    for (let k = 0; k <= 120; k++) {
+      const s = t0 + (t1 - t0) * k / 120;
+      // les brins s'écartent au milieu et se rejoignent vers les bouts
+      const ouvre = pince + (1 - pince) * Math.sin(Math.PI * s);
+      pts.push(sur(s, c * ouvre + amp * Math.sin(om * s + ph) * ouvre));
+    }
+    out.push(pts);
+  }
+  return out;
 }
 function traitsLibres(R, U) {
   // Croissance en chaîne : chaque nouvelle ligne croise une ligne déjà posée en un point pris
@@ -335,7 +369,7 @@ function colle(pts, parent, tous) {
 }
 function croissance(base) {
   const R = mulberry32(P.graine * 104729 + 11), U = (a, b) => a + (b - a) * R();
-  const tous = base.map((t) => { const c = t.slice(); c.niv = 0; return c; });
+  const tous = base.map((t) => { const c = t.slice(); c.niv = 0; c.effil = t.effil; return c; });
   const pousser = (parent, n, niv) => {
     const m = parent.length - 1, pris = [], enfants = [];
     // une ligne avec des angles (un logo, un tracé importé) compte comme plusieurs morceaux :
@@ -364,11 +398,11 @@ function croissance(base) {
       if (sm < 0.1 || sm > 0.9) continue;
       const a = parent[Math.max(0, i - 1)], b = parent[Math.min(m, i + 1)];
       const tan = Math.atan2(b[1] - a[1], b[0] - a[0]);
-      const cap = tan + cote * U(0.7, 1.25);
+      const cap = tan + cote * U(0.3, 0.75); // couchées dans le sens du flux, comme sur les références
       const Lb = Math.min(Lm * P.longueurBranches * U(0.8, 1.15) * (1 - 0.25 * sm), LONGUEUR_MAX * P.epaisseur * EPAISSEUR_NIVEAU[Math.min(niv, 3)] * U(0.8, 1.1));
-      if (Lb < 1.6 * eb) continue;
+      if (Lb < 2.6 * eb) continue; // trop courte, elle ne ferait qu'une bosse
       const sg = R() < 0.75 ? -cote : cote; // la plupart se recourbent dans le sens de la ligne mère
-      const pts = courbe(parent[i][0], parent[i][1], cap, Lb, U(0.3, 1.0), U(0.3, 1.3), sg);
+      const pts = courbe(parent[i][0], parent[i][1], cap, Lb, U(0.05, 0.45), U(0, 0.45), sg); // peu enroulées : elles restent couchées dans le flux
       if (colle(pts, parent, tous)) continue; // une branche qui longe ou recouvre une autre ferait un pâté
       pts.niv = niv; pris.push({ i, cote }); enfants.push(pts); tous.push(pts);
     }
@@ -393,7 +427,7 @@ function cadrer(traits) {
   const k = dispo / Math.max(x1 - x0, y1 - y0, 1);
   ECHELLE = k; // l'épaisseur suit l'échelle : une grande composition garde des traits fins
   const ox = (MONDE - (x1 - x0) * k) / 2, oy = (MONDE - (y1 - y0) * k) / 2;
-  return traits.map((t) => { const c = t.map(([x, y]) => [ox + (x - x0) * k, oy + (y - y0) * k]); c.niv = t.niv || 0; return c; });
+  return traits.map((t) => { const c = t.map(([x, y]) => [ox + (x - x0) * k, oy + (y - y0) * k]); c.niv = t.niv || 0; c.effil = t.effil; return c; });
 }
 // Le logo JAB (tracé du portfolio) comme lignes de base
 const LOGO_JAB = [
@@ -412,7 +446,7 @@ function traits() {
   if (P.source === "logo") {
     // le logo est d'abord mis à l'échelle du plateau, puis les branches poussent, puis tout est recadré :
     // l'épaisseur suit le recadrage, donc les contre-formes du logo restent ouvertes
-    const k0 = 2.25, base = LOGO_JAB.map((p) => echantillonner(p.map(([x, y]) => [60 + x * k0, 300 + y * k0]), 5));
+    const k0 = 2.25, base = LOGO_JAB.map((p) => { const t = echantillonner(p.map(([x, y]) => [60 + x * k0, 300 + y * k0]), 5); t.effil = 0.3; return t; }); // le logo garde des bouts pleins
     const T = cadrer(croissance(base));
     ECHELLE = Math.pow(ECHELLE, 1 / EXPO_ECHELLE); // compense l'exposant appliqué plus loin : ici l'épaisseur suit l'échelle en entier
     return T;
@@ -428,7 +462,7 @@ function traits() {
     return dehors ? cadrer(T) : T;
   }
   const R = mulberry32(P.graine * 7919 + 3), U = (a, b) => a + (b - a) * R();
-  return cadrer(croissance(traitsLibres(R, U)));
+  return cadrer(croissance(traitsFaisceau(R, U)));
 }
 
 // Comble les trous (zones vides entourées de matière) de moins de maxCases cases. plein : 1 = matière.
@@ -474,7 +508,8 @@ function construireMaillage(T, rapide) {
   for (const t of T) {
     const m = t.length - 1, niv = t.niv || 0, R0 = (E / 2) * EPAISSEUR_NIVEAU[niv];
     // ligne de base : amincie aux deux bouts ; branche : pleine à l'attache, fine à la pointe
-    const rayon = niv === 0 ? (i) => R0 * (1 - P.effilement * Math.pow(Math.abs(2 * i / m - 1), 3)) : (i) => R0 * (1 - 0.4 * Math.pow(i / m, 1.6));
+    const ef = t.effil ?? P.effilement;
+    const rayon = niv === 0 ? (i) => R0 * (1 - ef * Math.pow(Math.abs(2 * i / m - 1), 3)) : (i) => R0 * (1 - 0.4 * Math.pow(i / m, 1.6));
     for (let i = 0; i < m; i++) {
       const [ax, ay] = t[i], [bx, by] = t[i + 1], ra = rayon(i), rb = rayon(i + 1), r = Math.max(ra, rb);
       const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - r) / h)), i1 = Math.min(N, Math.ceil((Math.max(ax, bx) + r) / h));
@@ -496,6 +531,30 @@ function construireMaillage(T, rapide) {
   const idx = new Int32Array(n1 * n1).fill(-1);
   let nv = 0;
   for (let g = 0; g < n1 * n1; g++) if (utile[g]) idx[g] = nv++;
+  // Les vides reliés au bord du plateau sont « dehors » ; les autres sont des jours (trous).
+  const dehors = new Uint8Array(n1 * n1), pile = [];
+  for (let i = 0; i < n1; i++) for (const g of [i, (n1 - 1) * n1 + i, i * n1, i * n1 + n1 - 1]) if (!utile[g] && !dehors[g]) { dehors[g] = 1; pile.push(g); }
+  while (pile.length) {
+    const g = pile.pop(), x = g % n1, y = (g / n1) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= n1 || yy >= n1) continue;
+      const q = yy * n1 + xx;
+      if (!utile[q] && !dehors[q]) { dehors[q] = 1; pile.push(q); }
+    }
+  }
+  // un point qui borde un jour bouge à peine : le jour garde sa forme de lentille pointue
+  const bordJour = new Uint8Array(nv);
+  for (let g = 0; g < n1 * n1; g++) {
+    if (idx[g] < 0) continue;
+    const x = g % n1, y = (g / n1) | 0;
+    for (let dy = -1; dy <= 1 && !bordJour[idx[g]]; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= n1 || yy >= n1) continue;
+      const q = yy * n1 + xx;
+      if (!utile[q] && !dehors[q]) { bordJour[idx[g]] = 1; break; }
+    }
+  }
   const X = new Float64Array(nv), Y = new Float64Array(nv);
   for (let g = 0; g < n1 * n1; g++) if (idx[g] >= 0) { X[idx[g]] = (g % n1) * h; Y[idx[g]] = Math.floor(g / n1) * h; }
   // voisins : arêtes de la grille entre deux points gardés et portées par une face
@@ -512,20 +571,27 @@ function construireMaillage(T, rapide) {
   for (const e of arete) { const a = Math.floor(e / nv), b = e % nv; vois[rempli[a]++] = b; vois[rempli[b]++] = a; }
   const F = new Int32Array(faces.length);
   for (let i = 0; i < faces.length; i++) F[i] = idx[faces[i]];
-  return { X0: X.slice(), Y0: Y.slice(), X, Y, X2: new Float64Array(nv), Y2: new Float64Array(nv), debut, vois, F, nv, passes: 0, traits: T, N, rapide, casesE: E / h };
+  return { X0: X.slice(), Y0: Y.slice(), X, Y, X2: new Float64Array(nv), Y2: new Float64Array(nv), debut, vois, F, nv, passes: 0, traits: T, N, rapide, casesE: E / h, bordJour };
 }
 
 // ---------------- 3. sigiliser : flou des positions ----------------
 function passes(M, n) {
   let { X, Y, X2, Y2 } = M;
-  const { debut, vois, nv } = M;
+  const { debut, vois, nv, bordJour } = M;
   for (let it = 0; it < n; it++) {
     for (let v = 0; v < nv; v++) {
       let sx = X[v], sy = Y[v];
       const a = debut[v], b = debut[v + 1];
       for (let k = a; k < b; k++) { const w = vois[k]; sx += X[w]; sy += Y[w]; }
       const d = 1 + b - a;
-      X2[v] = sx / d; Y2[v] = sy / d;
+      if (bordJour[v]) {
+        // le long du bord du jour seulement : on lisse les marches de la grille sans gonfler le jour
+        let bx = X[v], by = Y[v], nb = 1;
+        for (let k = a; k < b; k++) { const w = vois[k]; if (bordJour[w]) { bx += X[w]; by += Y[w]; nb++; } }
+        X2[v] = X[v] + (bx / nb - X[v]) * 0.5 + (sx / d - X[v]) * MOBILITE_JOUR;
+        Y2[v] = Y[v] + (by / nb - Y[v]) * 0.5 + (sy / d - Y[v]) * MOBILITE_JOUR;
+      }
+      else { X2[v] = sx / d; Y2[v] = sy / d; }
     }
     let t = X; X = X2; X2 = t; t = Y; Y = Y2; Y2 = t;
   }
@@ -595,6 +661,7 @@ function masque(S) {
 }
 const TROU_GRILLE = 0.35; // trous de départ plus petits que 1,6 × épaisseur² : bouchés
 const TROU_FINAL = 3600; // trous finaux de moins de ~60 × 60 unités : bouchés
+const MOBILITE_JOUR = 0.08; // les bords des jours bougent 8 fois moins que le reste
 const PENTE = 0.75; // pente des biseaux (0.75 ≈ 37°)
 // Distance euclidienne exacte au bord (Felzenszwalb & Huttenlocher), en pixels, à l'intérieur de la forme.
 function edt(A0, S) {
