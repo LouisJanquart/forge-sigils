@@ -164,19 +164,20 @@ const DEF = [
   ]],
   ["3 · FORME", [
     ["epaisseur", "Épaisseur", 50, 170, 1, 90],
-    ["sigil", "Finesse", 100, 1200, 10, 270, "Plus haut : plus fin, plus pointu."],
+    ["sigil", "Finesse", 80, 1200, 10, 200, "Plus haut : plus fin, plus pointu."],
   ]],
   ["4 · RENDU", []],
 ];
 // réglages fixés : les valeurs qui donnent de beaux résultats
-const FIXE = { longueurTrait: 760, courbureTrait: 1.4, effilement: 0.75, resolution: 230, relief: 22 };
-const EPAISSEUR_NIVEAU = [1, 0.8, 0.68, 0.6];
+const FIXE = { longueurTrait: 760, courbureTrait: 1.4, effilement: 0.96, resolution: 230, relief: 22 };
+const EPAISSEUR_NIVEAU = [1, 0.8, 0.68, 0.6, 0.45]; // le dernier : les épines
 const EXPO_ECHELLE = 0.65; // une grande composition affine ses traits (sans aller jusqu'au fil)
-const LONGUEUR_MAX = 6; // une branche ne dépasse pas ~3,5 fois son épaisseur
+const LONGUEUR_MAX = 6;
+const DENSITE_EPINES = 3.5; // une épine tous les ~3,5 épaisseurs de trait
 const P = { graine: 2026, source: "libres", mode: "chrome", voirTraits: false, traitsMain: [] };
 for (const k in SOURCE) SOURCE[k].items.forEach(([c, , , , , v]) => (P[c] = v));
 DEF.forEach(([, items]) => items.forEach(([c, , , , , v]) => (P[c] = v)));
-try { const s = JSON.parse(localStorage.getItem("forge-sigils-14") || "null"); if (s) Object.assign(P, s); } catch (e) {}
+try { const s = JSON.parse(localStorage.getItem("forge-sigils-15") || "null"); if (s) Object.assign(P, s); } catch (e) {}
 if (!SOURCE[P.source]) P.source = "libres";
 Object.assign(P, FIXE);
 
@@ -207,7 +208,7 @@ function afficherSource() {
   document.getElementById("consigne").hidden = !main;
   document.getElementById("scene").classList.toggle("trace", main);
 }
-function sauver() { try { localStorage.setItem("forge-sigils-14", JSON.stringify(P)); } catch (e) {} }
+function sauver() { try { localStorage.setItem("forge-sigils-15", JSON.stringify(P)); } catch (e) {} }
 function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lisse = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -259,7 +260,7 @@ function faisceau(R, U, x0, y0, th0, bend, L, n, E, pinceDebut, ondule = 1, queu
     const x = a.x + Math.cos(a.th) * hors * L, y = a.y + Math.sin(a.th) * hors * L;
     return [x - Math.sin(a.th) * d, y + Math.cos(a.th) * d];
   };
-  const ecartBrins = E * U(1.05, 1.4) * (1 + 0.05 * Math.max(0, n - 3)), out = []; // grand faisceau : un peu plus d'air
+  const ecartBrins = E * U(1.3, 1.7) * (1 + 0.12 * Math.max(0, n - 3)), out = []; // grand faisceau : un peu plus d'air
   // distance minimale (approchée) entre un brin et les autres
   const dmin = (p, autres) => {
     // seulement la partie épaisse des brins (hors bouts effilés)
@@ -272,9 +273,10 @@ function faisceau(R, U, x0, y0, th0, bend, L, n, E, pinceDebut, ondule = 1, queu
   };
   // tous les brins ondulent presque au même rythme, deux voisins en opposition de phase :
   // ils se croisent régulièrement (tout tient ensemble) et s'écartent entre deux croisements (jours en lentille)
-  const omBase = U(1.4, 2.4) * Math.PI * (ondule < 1 ? 0.6 : 1) * (1 + 0.12 * Math.max(0, n - 3)), phBase = U(0, Math.PI * 2); // grand faisceau : plus de croisements
+  const omBase = U(1.1, 1.9) * Math.PI * (ondule < 1 ? 0.6 : 1), phBase = U(0, Math.PI * 2); // de longues courbes lisses, peu de croisements
   for (let i = 0; i < n; i++) {
     let c = (i - (n - 1) / 2) * ecartBrins * U(0.9, 1.1);
+    if (n > 3 && (i === 0 || i === n - 1)) c *= 0.82; // les brins du bord restent près du faisceau (sinon ils finissent en fil isolé)
     const amp = ecartBrins * U(0.5, 0.68) * ondule, om = omBase * U(0.88, 1.12), ph = phBase + (i % 2) * Math.PI + U(-0.4, 0.4); // amplitude liée à l'écart : deux voisins se croisent toujours
     // bouts décalés par crans nets : soit ensemble, soit franchement en retrait (pas de moignons)
     let t0 = pinceDebut ? 0 : [0, 0, 0.15, 0.28][Math.floor(R() * 4)], t1 = [1, 1, 0.85, 0.72][Math.floor(R() * 4)];
@@ -291,8 +293,8 @@ function faisceau(R, U, x0, y0, th0, bend, L, n, E, pinceDebut, ondule = 1, queu
         const ouvre = pinceDebut ? pince * 0.4 + (1 - pince * 0.4) * Math.sin(Math.PI * Math.min(1, 0.5 + sc * 0.5)) * Math.min(1, sc * 2.2)
                                  : pince + (1 - pince) * Math.sin(Math.PI * sc);
         // onde asymétrique : un croisement serré (pointe) et une ouverture ronde (bout rond) -> jours en larme
-        const x = om * s + ph, onde = (Math.sin(x) + 0.38 * Math.sin(2 * x + 0.9)) / 1.12;
-        pts.push(sur(s, c * ouvre + amp * onde * Math.sqrt(ouvre))); // l'ondulation garde de l'ampleur vers les bouts : les brins continuent de se croiser
+        const x = om * s + ph, onde = (Math.sin(x) + 0.22 * Math.sin(2 * x + 0.9)) / 1.06;
+        pts.push(sur(s, c * ouvre + amp * onde * Math.sqrt(ouvre)));
       }
       return pts;
     };
@@ -468,6 +470,28 @@ function croissance(base) {
     for (const b of generation) suivante.push(...pousser(b, n, niv));
     generation = suivante;
   }
+  // Épines : de petites pointes couchées tout le long des brins, vers l'extérieur comme dans les jours
+  // (la signature des références). Elles n'ont qu'à ne pas toucher un autre trait.
+  const E = P.epaisseur, porteurs = tous.filter((t) => (t.niv || 0) <= 1);
+  for (const t of porteurs) {
+    const m = t.length - 1, L = longueurDe(t), k = Math.round(L / (E * DENSITE_EPINES));
+    for (let j = 0; j < k; j++) {
+      const sj = U(0.15, 0.85), i = Math.round(sj * m), a = t[Math.max(0, i - 1)], b = t[Math.min(m, i + 1)];
+      const tan = Math.atan2(b[1] - a[1], b[0] - a[0]), cote = R() < 0.5 ? 1 : -1;
+      const Lp = E * U(3, 5) * (t.niv ? 0.75 : 1);
+      const pts = courbe(t[i][0], t[i][1], tan + cote * U(0.35, 0.8), Lp, U(0, 0.3), U(0, 0.6), -cote);
+      // la pointe ne doit frôler aucun autre trait
+      let ok = true;
+      for (let q = Math.floor(pts.length * 0.4); q < pts.length && ok; q++) {
+        for (const u of tous) {
+          if (u === t) continue;
+          for (let w = 0; w < u.length; w += 2) if (Math.hypot(u[w][0] - pts[q][0], u[w][1] - pts[q][1]) < E * 0.55) { ok = false; break; }
+          if (!ok) break;
+        }
+      }
+      if (ok) { pts.niv = 4; tous.push(pts); }
+    }
+  }
   return tous;
 }
 let ECHELLE = 1;
@@ -561,7 +585,7 @@ function construireMaillage(T, rapide) {
     const m = t.length - 1, niv = t.niv || 0, R0 = (E / 2) * EPAISSEUR_NIVEAU[niv];
     // ligne de base : amincie aux deux bouts ; branche : pleine à l'attache, fine à la pointe
     const ef = t.effil ?? P.effilement, efd = t.effDeb ?? ef;
-    const rayon = niv === 0 ? (i) => R0 * (1 - (i < m / 2 ? efd : ef) * Math.pow(Math.abs(2 * i / m - 1), 3)) : (i) => R0 * (1 - 0.4 * Math.pow(i / m, 1.6));
+    const rayon = niv === 0 ? (i) => R0 * (1 - (i < m / 2 ? efd : ef) * Math.pow(Math.abs(2 * i / m - 1), 3)) : niv === 4 ? (i) => R0 * (1 - 0.95 * Math.pow(i / m, 1.1)) : (i) => R0 * (1 - 0.4 * Math.pow(i / m, 1.6)); // épines : effilées jusqu'à la pointe
     for (let i = 0; i < m; i++) {
       const [ax, ay] = t[i], [bx, by] = t[i + 1], ra = rayon(i), rb = rayon(i + 1), r = Math.max(ra, rb);
       const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - r) / h)), i1 = Math.min(N, Math.ceil((Math.max(ax, bx) + r) / h));
