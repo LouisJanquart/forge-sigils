@@ -182,7 +182,8 @@ const DEF = [
 // réglages fixés : les valeurs qui donnent de beaux résultats
 const FIXE = { longueurTrait: 760, courbureTrait: 1.4, effilement: 0.35, resolution: 230, relief: 22 };
 const EPAISSEUR_NIVEAU = [1, 0.8, 0.68, 0.6];
-const LONGUEUR_MAX = 3.5; // une branche ne dépasse pas ~3,5 fois son épaisseur
+const EXPO_ECHELLE = 1; // une grande composition affine ses traits (sans aller jusqu'au fil)
+const LONGUEUR_MAX = 4.5; // une branche ne dépasse pas ~3,5 fois son épaisseur
 const P = { graine: 2026, source: "libres", mode: "chrome", voirTraits: false, traitsMain: [] };
 for (const k in SOURCE) SOURCE[k].items.forEach(([c, , , , , v]) => (P[c] = v));
 DEF.forEach(([, items]) => items.forEach(([c, , , , , v]) => (P[c] = v)));
@@ -235,8 +236,10 @@ function courbe(x, y, cap, L, tour, crochet, signe) {
   }
   return pts;
 }
+// la taille allonge aussi les lignes : une grande forme a des traits plus fins par rapport à l'ensemble
+const longueurBase = () => P.longueurTrait * (0.75 + 0.25 * P.taille);
 function unTrait(R, U) {
-  const L = P.longueurTrait * U(0.7, 1.15);
+  const L = longueurBase() * U(0.7, 1.15);
   const etendue = 170 + 70 * (P.taille - 1); // plus de lignes : on les répartit sur une zone plus large
   const cx = 500 + U(-etendue, etendue), cy = 500 + U(-etendue, etendue), cap = U(0, Math.PI * 2);
   const tour = P.courbureTrait * U(-1, 1), crochet = P.courbureTrait * U(0, 0.6);
@@ -248,24 +251,38 @@ function unTrait(R, U) {
   return a.concat(b.slice(1));
 }
 function traitsLibres(R, U) {
-  // chaque nouveau trait doit croiser un trait déjà posé, sans le longer (sinon : pâtés et morceaux isolés)
+  // Croissance en chaîne : chaque nouvelle ligne croise une ligne déjà posée en un point pris
+  // sur sa longueur, et part vers l'extérieur. Les lignes ne s'empilent plus toutes au centre,
+  // et une ligne qui en longerait une autre (ou passerait trop près d'une troisième) est refusée.
   const out = [], E = P.epaisseur;
-  for (let k = 0; k < P.taille; k++) {
-    let meilleur = null, note = -Infinity;
-    for (let essai = 0; essai < 40; essai++) {
-      const c = unTrait(R, U);
-      if (!out.length) { meilleur = c; break; }
-      let croise = false, colle = 0;
-      for (const p of c) {
-        let dm = Infinity;
-        for (const t of out) for (const q of t) { const d = Math.hypot(p[0] - q[0], p[1] - q[1]); if (d < dm) dm = d; }
-        if (dm < E * 0.25) croise = true;
-        if (dm < E * 0.9) colle++;
-      }
-      const part = colle / c.length;
-      const n = (croise ? 1 : 0) - Math.max(0, part - 0.28) * 4;
-      if (n > note) { note = n; meilleur = c; }
-      if (croise && part < 0.28) break;
+  const premier = unTrait(R, U);
+  out.push(premier);
+  const proches = (c, exclu) => {
+    let n = 0;
+    for (const p of c) {
+      let dm = Infinity;
+      for (const t of out) { if (t === exclu) continue; for (let j = 0; j < t.length; j += 2) { const d = Math.hypot(p[0] - t[j][0], p[1] - t[j][1]); if (d < dm) dm = d; } }
+      if (dm < E * 1.3) n++;
+    }
+    return n / c.length;
+  };
+  for (let k = 1; k < P.taille; k++) {
+    let meilleur = null, note = Infinity;
+    for (let essai = 0; essai < 60; essai++) {
+      const mere = out[Math.floor(R() * out.length)], m = mere.length - 1;
+      const im = Math.round(U(0.15, 0.85) * m), a = mere[Math.max(0, im - 1)], b = mere[Math.min(m, im + 1)];
+      const tan = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      const cap = tan + (R() < 0.5 ? 1 : -1) * U(0.9, 1.9);
+      const L = longueurBase() * U(0.6, 1.0), tour = P.courbureTrait * U(-0.8, 0.8);
+      const c0 = courbe(0, 0, cap, L, tour, P.courbureTrait * U(0, 0.5), R() < 0.5 ? -1 : 1);
+      const ic = Math.round(U(0.25, 0.6) * (c0.length - 1));
+      const dx = mere[im][0] - c0[ic][0], dy = mere[im][1] - c0[ic][1];
+      const c = c0.map(([x, y]) => [x + dx, y + dy]);
+      // seules comptent les zones loin du croisement
+      const loin = c.filter((p) => Math.hypot(p[0] - mere[im][0], p[1] - mere[im][1]) > E * 2.2);
+      const note_ = proches(loin, null);
+      if (note_ < note) { note = note_; meilleur = c; }
+      if (note_ < 0.05) break;
     }
     out.push(meilleur);
   }
@@ -293,21 +310,26 @@ function traitsArbre(R, U) {
 // Croissance en arbre : sur chaque ligne de base poussent des branches, sur chaque branche des sous-branches.
 function longueurDe(t) { let L = 0; for (let i = 1; i < t.length; i++) L += Math.hypot(t[i][0] - t[i - 1][0], t[i][1] - t[i - 1][1]); return L; }
 function colle(pts, parent, tous) {
-  const ecart = P.epaisseur * 0.55; // garde un peu d'air entre les branches
+  // Refuse une branche qui longe une autre ligne, ou dont la moitié finale passe près d'une autre :
+  // une pointe qui touche sa voisine ferme une boucle, et la contraction en fait un trou rond.
+  const ecart = P.epaisseur * 0.55, ecartPointe = P.epaisseur * 0.95;
+  const a0 = pts[0];
+  const pres = (x, y, r) => {
+    for (const t of tous) {
+      for (let j = 0; j < t.length; j += 2) {
+        const q = t[j];
+        if (t === parent && Math.hypot(q[0] - a0[0], q[1] - a0[1]) < P.epaisseur * 1.6) continue; // l'attache elle-même
+        if (Math.abs(q[0] - x) < r && Math.abs(q[1] - y) < r && Math.hypot(q[0] - x, q[1] - y) < r) return true;
+      }
+    }
+    return false;
+  };
   let n = 0, total = 0;
   for (let i = Math.floor(pts.length * 0.3); i < pts.length; i++) {
-    total++;
     const [x, y] = pts[i];
-    let proche = false;
-    for (const t of tous) {
-      if (t === parent) {
-        // la mère compte aussi, sauf près du point d'attache
-        if (Math.hypot(x - pts[0][0], y - pts[0][1]) < ecart * 2.5) continue;
-      }
-      for (let j = 0; j < t.length; j += 2) if (Math.abs(t[j][0] - x) < ecart && Math.abs(t[j][1] - y) < ecart && Math.hypot(t[j][0] - x, t[j][1] - y) < ecart) { proche = true; break; }
-      if (proche) break;
-    }
-    if (proche) n++;
+    if (i >= pts.length * 0.45 && pres(x, y, ecartPointe)) return true;
+    total++;
+    if (pres(x, y, ecart)) n++;
   }
   return total > 0 && n / total > 0.2;
 }
@@ -392,7 +414,7 @@ function traits() {
     // l'épaisseur suit le recadrage, donc les contre-formes du logo restent ouvertes
     const k0 = 2.25, base = LOGO_JAB.map((p) => echantillonner(p.map(([x, y]) => [60 + x * k0, 300 + y * k0]), 5));
     const T = cadrer(croissance(base));
-    ECHELLE = ECHELLE * ECHELLE; // compense la racine carrée appliquée plus loin : ici l'épaisseur suit l'échelle en entier
+    ECHELLE = Math.pow(ECHELLE, 1 / EXPO_ECHELLE); // compense l'exposant appliqué plus loin : ici l'épaisseur suit l'échelle en entier
     return T;
   }
   if (P.source === "main") {
@@ -446,7 +468,7 @@ function dCapsule(px, py, ax, ay, bx, by, ra, rb) {
 let MAILLAGE = null;
 const CASES_EPAISSEUR = 15; // la grille compte toujours ~15 cases dans l'épaisseur d'une ligne de base
 function construireMaillage(T, rapide) {
-  const E = P.epaisseur * Math.sqrt(ECHELLE);
+  const E = P.epaisseur * Math.pow(ECHELLE, EXPO_ECHELLE);
   const N = Math.round(clamp(MONDE * CASES_EPAISSEUR / E, 120, 360) * (rapide ? 0.55 : 1)), h = MONDE / N, n1 = N + 1;
   const dedans = new Uint8Array(n1 * n1);
   for (const t of T) {
