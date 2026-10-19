@@ -174,19 +174,19 @@ const DEF = [
     ["longueurBranches", "Longueur", 0.1, 0.8, 0.05, 0.3, "Longueur d'une branche par rapport à la ligne qui la porte."],
   ]],
   ["3 · FORME", [
-    ["epaisseur", "Épaisseur", 40, 130, 1, 68],
+    ["epaisseur", "Épaisseur", 50, 170, 1, 90],
     ["sigil", "Finesse", 100, 1200, 10, 380, "Plus haut : plus fin, plus pointu."],
   ]],
   ["4 · RENDU", []],
 ];
 // réglages fixés : les valeurs qui donnent de beaux résultats
 const FIXE = { longueurTrait: 760, courbureTrait: 1.4, effilement: 0.35, resolution: 230, relief: 22 };
-const EPAISSEUR_NIVEAU = [1, 0.62, 0.5, 0.42];
+const EPAISSEUR_NIVEAU = [1, 0.8, 0.68, 0.6];
 const LONGUEUR_MAX = 3.5; // une branche ne dépasse pas ~3,5 fois son épaisseur
 const P = { graine: 2026, source: "libres", mode: "chrome", voirTraits: false, traitsMain: [] };
 for (const k in SOURCE) SOURCE[k].items.forEach(([c, , , , , v]) => (P[c] = v));
 DEF.forEach(([, items]) => items.forEach(([c, , , , , v]) => (P[c] = v)));
-try { const s = JSON.parse(localStorage.getItem("forge-sigils-11") || "null"); if (s) Object.assign(P, s); } catch (e) {}
+try { const s = JSON.parse(localStorage.getItem("forge-sigils-12") || "null"); if (s) Object.assign(P, s); } catch (e) {}
 if (!SOURCE[P.source]) P.source = "libres";
 Object.assign(P, FIXE);
 
@@ -217,7 +217,7 @@ function afficherSource() {
   document.getElementById("consigne").hidden = !main;
   document.getElementById("scene").classList.toggle("trace", main);
 }
-function sauver() { try { localStorage.setItem("forge-sigils-11", JSON.stringify(P)); } catch (e) {} }
+function sauver() { try { localStorage.setItem("forge-sigils-12", JSON.stringify(P)); } catch (e) {} }
 function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lisse = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
