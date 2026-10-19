@@ -114,6 +114,7 @@ button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent);
         <label for="r-source">Lignes de base</label>
         <select id="r-source">
           <option value="libres">Au hasard</option>
+          <option value="logo">Logo JAB</option>
           <option value="main">Dessinées ou importées</option>
         </select>
         <small id="aide-source"></small>
@@ -163,13 +164,14 @@ const SOURCE = {
   libres: { aide: "", items: [
     ["taille", "Taille", 1, 6, 1, 2, "Plus grand : plus de lignes de base, une forme plus vaste."],
   ]},
+  logo: { aide: "", items: [] },
   main: { aide: "", items: [] },
 };
 const DEF = [
   ["2 · BRANCHES", [
     ["profondeur", "Profondeur", 0, 3, 1, 1, "0 : lignes seules. 1 : des branches. 2 et 3 : des branches sur les branches."],
     ["nombre", "Nombre", 1, 6, 1, 3, "Branches sur chaque ligne (un peu moins à chaque niveau)."],
-    ["longueurBranches", "Longueur", 0.3, 1.2, 0.05, 0.7, "Longueur d'une branche par rapport à la ligne qui la porte."],
+    ["longueurBranches", "Longueur", 0.2, 1, 0.05, 0.55, "Longueur d'une branche par rapport à la ligne qui la porte."],
   ]],
   ["3 · FORME", [
     ["epaisseur", "Épaisseur", 40, 130, 1, 68],
@@ -179,11 +181,12 @@ const DEF = [
 ];
 // réglages fixés : les valeurs qui donnent de beaux résultats
 const FIXE = { longueurTrait: 760, courbureTrait: 1.4, effilement: 0.35, resolution: 230, relief: 22 };
-const EPAISSEUR_NIVEAU = [1, 0.9, 0.8, 0.72];
+const EPAISSEUR_NIVEAU = [1, 0.92, 0.85, 0.8];
+const LONGUEUR_MAX = 6; // une branche ne dépasse pas ~6 fois son épaisseur
 const P = { graine: 2026, source: "libres", mode: "chrome", voirTraits: false, traitsMain: [] };
 for (const k in SOURCE) SOURCE[k].items.forEach(([c, , , , , v]) => (P[c] = v));
 DEF.forEach(([, items]) => items.forEach(([c, , , , , v]) => (P[c] = v)));
-try { const s = JSON.parse(localStorage.getItem("forge-sigils-9") || "null"); if (s) Object.assign(P, s); } catch (e) {}
+try { const s = JSON.parse(localStorage.getItem("forge-sigils-10") || "null"); if (s) Object.assign(P, s); } catch (e) {}
 if (!SOURCE[P.source]) P.source = "libres";
 Object.assign(P, FIXE);
 
@@ -214,7 +217,7 @@ function afficherSource() {
   document.getElementById("consigne").hidden = !main;
   document.getElementById("scene").classList.toggle("trace", main);
 }
-function sauver() { try { localStorage.setItem("forge-sigils-9", JSON.stringify(P)); } catch (e) {} }
+function sauver() { try { localStorage.setItem("forge-sigils-10", JSON.stringify(P)); } catch (e) {} }
 function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lisse = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -337,7 +340,7 @@ function croissance(base) {
       const a = parent[Math.max(0, i - 1)], b = parent[Math.min(m, i + 1)];
       const tan = Math.atan2(b[1] - a[1], b[0] - a[0]), cote = R() < 0.5 ? 1 : -1;
       const cap = tan + cote * U(0.7, 1.25);
-      const Lb = Lm * P.longueurBranches * U(0.8, 1.15) * (1 - 0.25 * sm);
+      const Lb = Math.min(Lm * P.longueurBranches * U(0.8, 1.15) * (1 - 0.25 * sm), LONGUEUR_MAX * P.epaisseur * EPAISSEUR_NIVEAU[Math.min(niv, 3)] * U(0.8, 1.1));
       if (Lb < 40) continue;
       const sg = R() < 0.75 ? -cote : cote; // la plupart se recourbent dans le sens de la ligne mère
       const pts = courbe(parent[i][0], parent[i][1], cap, Lb, U(0.3, 1.0), U(0.3, 1.3), sg);
@@ -367,7 +370,28 @@ function cadrer(traits) {
   const ox = (MONDE - (x1 - x0) * k) / 2, oy = (MONDE - (y1 - y0) * k) / 2;
   return traits.map((t) => { const c = t.map(([x, y]) => [ox + (x - x0) * k, oy + (y - y0) * k]); c.niv = t.niv || 0; return c; });
 }
+// Le logo JAB (tracé du portfolio) comme lignes de base
+const LOGO_JAB = [
+  [[82.45, 62.5], [59.13, 12.5], [152.39, 12.5], [59.13, 212.5], [12.5, 112.5], [402.63, 112.5], [355.99, 212.5], [262.73, 12.5], [355.99, 12.5], [309.36, 112.5]],
+  [[114.3, 212.5], [207.56, 12.5], [300.82, 212.5]],
+];
+function echantillonner(poly, pas) {
+  const out = [poly[0]];
+  for (let i = 1; i < poly.length; i++) {
+    const [ax, ay] = poly[i - 1], [bx, by] = poly[i], n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / pas));
+    for (let k = 1; k <= n; k++) out.push([ax + (bx - ax) * k / n, ay + (by - ay) * k / n]);
+  }
+  return out;
+}
 function traits() {
+  if (P.source === "logo") {
+    // le logo est d'abord mis à l'échelle du plateau, puis les branches poussent, puis tout est recadré :
+    // l'épaisseur suit le recadrage, donc les contre-formes du logo restent ouvertes
+    const k0 = 2.25, base = LOGO_JAB.map((p) => echantillonner(p.map(([x, y]) => [60 + x * k0, 300 + y * k0]), 5));
+    const T = cadrer(croissance(base));
+    ECHELLE = ECHELLE * ECHELLE; // compense la racine carrée appliquée plus loin : ici l'épaisseur suit l'échelle en entier
+    return T;
+  }
   if (P.source === "main") {
     ECHELLE = 1;
     const base = P.traitsMain.filter((t) => t.length > 2);
@@ -425,7 +449,7 @@ function construireMaillage(T, rapide) {
   for (const t of T) {
     const m = t.length - 1, niv = t.niv || 0, R0 = (E / 2) * EPAISSEUR_NIVEAU[niv];
     // ligne de base : amincie aux deux bouts ; branche : pleine à l'attache, fine à la pointe
-    const rayon = niv === 0 ? (i) => R0 * (1 - P.effilement * Math.pow(Math.abs(2 * i / m - 1), 3)) : (i) => R0 * (1 - 0.5 * Math.pow(i / m, 1.6));
+    const rayon = niv === 0 ? (i) => R0 * (1 - P.effilement * Math.pow(Math.abs(2 * i / m - 1), 3)) : (i) => R0 * (1 - 0.4 * Math.pow(i / m, 1.6));
     for (let i = 0; i < m; i++) {
       const [ax, ay] = t[i], [bx, by] = t[i + 1], ra = rayon(i), rb = rayon(i + 1), r = Math.max(ra, rb);
       const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - r) / h)), i1 = Math.min(N, Math.ceil((Math.max(ax, bx) + r) / h));
